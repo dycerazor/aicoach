@@ -1,0 +1,44 @@
+{
+  "entities": {},
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "user",
+          "schema": {
+            "$ref": "#/backend/entities/user"
+          },
+          "description": "Stores individual user profiles and settings. The userId from the path parameter must match request.auth.uid for ownership and access control. This structure ensures Authorization Independence as authorization is solely based on the path, and supports QAPs by allowing users to only retrieve their own document."
+        }
+      },
+      {
+        "path": "/users/{userId}/coaching_sessions/{sessionId}",
+        "definition": {
+          "entityName": "coachingSession",
+          "schema": {
+            "$ref": "#/backend/entities/coachingSession"
+          },
+          "description": "Contains records of individual coaching sessions for a specific user. Access is restricted to the owner of the parent user document. This path leverages hierarchical ownership for strong Authorization Independence (no 'get()' calls needed in rules) and enables secure, efficient QAPs for listing a user's own sessions.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique ID of the user who owns this coaching session, matching request.auth.uid."
+            },
+            {
+              "name": "sessionId",
+              "description": "The unique ID of a specific coaching session."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The provided application requirements for 'AI Coach Connect' primarily focus on real-time interactions, AI integration (Simli, Gemini), and UI components. There are no explicit mentions of persistent data storage needs in Firestore for session logs, user profiles, or settings. However, as a 'boilerplate for a real-time AI coaching app', it is highly probable that such data will be required for user experience, historical tracking, and personalization in future iterations.\n\nTherefore, this recommendation establishes a foundational Firestore structure based on common patterns for user-centric applications, prioritizing security, scalability, and debuggability from the outset. The core design principles, especially Authorization Independence and QAPs, are strictly applied:\n\n1.  **User-Owned Data (Authorization Independence & QAPs):** All user-specific data, such as `user` profiles and their individual `coaching_sessions`, are structured under `/users/{userId}` and `/users/{userId}/coaching_sessions/{sessionId}` respectively. This path-based ownership ensures that `request.auth.uid` can directly be compared against the `{userId}` wildcard in security rules. This eliminates the need for `get()` calls to check parent documents for authorization, thus achieving Authorization Independence. For QAPs (Queries as Permissions), this structure naturally scopes `list` operations. A user can only `list` their own coaching sessions by querying `db.collection('users').doc(request.auth.uid).collection('coaching_sessions')`, which is highly efficient and secure.\n\n2.  **Structural Segregation:** Each collection (`/users`, `/users/{userId}/coaching_sessions`) is designed to hold documents with a homogeneous security posture. A user's profile is private to them (or visible to specific roles, if implemented), and their coaching sessions are strictly private. There is no mixing of public and private data within the same collection.\n\n3.  **DBAC (Database-Backed Access Control):** While no specific roles are defined in the current scope, the structure is ready to implement DBAC. If administrative roles were needed, they would be stored in a dedicated collection like `/roles_admin/{uid}`, relying on existence checks rather than custom claims.\n\n4.  **Clarity of Intent:** The paths clearly indicate the ownership and relationship of the data, making security rules intuitive and easy to debug. The `ownerId` concept is implicit in the path structure for user-owned data."
+  }
+}
