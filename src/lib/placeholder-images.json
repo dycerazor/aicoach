@@ -1,3 +1,16 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "hero-coach",
+      "description": "Professional AI avatar placeholder",
+      "imageUrl": "https://picsum.photos/seed/coach-1/1200/800",
+      "imageHint": "AI professional"
+    },
+    {
+      "id": "app-feature-secure",
+      "description": "Security illustration",
+      "imageUrl": "https://picsum.photos/seed/security/600/400",
+      "imageHint": "secure shield"
+    }
+  ]
 }
