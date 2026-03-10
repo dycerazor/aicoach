@@ -1,55 +1,51 @@
-/**
- * AI Coach Connect Security Rules
- *
- * CORE PHILOSOPHY:
- * This ruleset enforces a strict user-ownership model designed for rapid prototyping. 
- * While it allows for flexible data shapes to support iterative development, it 
- * maintains rigorous authorization checks. Every piece of data is tied to a specific 
- * user and is only accessible by that authenticated user.
- *
- * DATA STRUCTURE:
- * The data is organized hierarchically under a root `/users` collection:
- * - /users/{userId}: Individual user profile information.
- * - /users/{userId}/coachingSessions/{sessionId}: Coaching session logs owned by the user.
- *
- * KEY SECURITY DECISIONS:
- * 1. Ownership Enforcement: All paths include a `{userId}` parameter. Access is 
- *    granted only if the authenticated user's UID (`request.auth.uid`) matches 
- *    the `{userId}` in the document path.
- * 2. Authorization Independence: Critical ownership fields (like `userId` in 
- *    coaching sessions) are denormalized directly onto the documents. Rules 
- *    verify that these internal fields match the path and the user's identity, 
- *    ensuring security without needing to perform expensive cross-document lookups.
- * 3. Prototyping Flexibility: Rules do not enforce strict data types or field 
- *    presence for general content. However, they strictly enforce the immutability 
- *    of relational fields (like IDs) that anchor the security model.
- * 4. Robust Write Operations: All update and delete operations require the 
- *    document to exist and the user to be the confirmed owner.
- */
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    /**
+     * PROTOTYPE MODE SECURITY RULES
+     * 
+     * Core Philosophy:
+     * This ruleset enforces a strict user-ownership model. Every piece of data is architected to 
+     * be owned by a specific authenticated user. Authorization is handled primarily through 
+     * hierarchical path-based checks, ensuring users can only access their own data tree.
+     *
+     * Data Structure:
+     * The primary data organization is nested under the user's unique identifier: `/users/{userId}/...`. 
+     * This structure naturally segments data, making security rules easier to reason about and 
+     * preventing accidental data leakage between users.
+     *
+     * Key Security Decisions:
+     * 1. Strict Ownership: All read and write operations require the user's UID to match the {userId} in the path.
+     * 2. Path-Data Consistency: On creation, we enforce that internal document fields (like userId) 
+     *    match the URL path. On update, these relational fields are made immutable.
+     * 3. No Public Listing: There are no public collections. Users can only list documents within 
+     *    their own subcollections.
+     *
+     * Denormalization for Authorization:
+     * To ensure high performance and avoid costly `get()` calls in rules, the `userId` is 
+     * denormalized into every `CoachingSession` document. This allows for immediate 
+     * validation that the document being written belongs to the user specified in the path.
+     *
+     * Structural Segregation:
+     * By nesting `coachingSessions` under a specific `userId`, we achieve structural segregation. 
+     * This allows us to secure entire branches of the database with a single, high-level 
+     * ownership check, ensuring users never see or modify sessions belonging to others.
+     */
+
     // --- Helper Functions ---
 
-    /**
-     * @description Checks if the request is made by a signed-in user.
-     */
+    /** @description Checks if the request is made by an authenticated user. */
     function isSignedIn() {
       return request.auth != null;
     }
 
-    /**
-     * @description Verifies if the user's authenticated UID matches the provided userId.
-     */
+    /** @description Checks if the authenticated user's UID matches the provided userId. */
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    /**
-     * @description Verifies ownership and ensures the document exists for state-changing operations.
-     */
+    /** @description Combines ownership check with a check that the document already exists. Useful for update/delete. */
     function isExistingOwner(userId) {
       return resource != null && isOwner(userId);
     }
@@ -57,38 +53,35 @@ service cloud.firestore {
     // --- Collection Rules ---
 
     /**
-     * @description Rules for user profile documents.
+     * @description Rules for the root user document. Allows users to manage their own profile.
      * @path /users/{userId}
-     * @allow get: (get) User 'abc' requests their own profile /users/abc.
-     * @deny create: (create) User 'abc' tries to create a profile for user 'xyz' at /users/xyz.
-     * @principle Restricts access to a user's own data tree and validates relational integrity.
+     * @allow Authenticated user (create/get/update) where UID matches {userId}.
+     * @deny Any user attempting to read or write to a different user's document.
+     * @principle Self-creation and strict ownership of the user's root document.
      */
     match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.id == userId;
-      allow update: if isExistingOwner(userId) && request.resource.data.id == resource.data.id;
-      allow delete: if isExistingOwner(userId);
+      allow get, list: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update, delete: if isExistingOwner(userId);
 
       /**
-       * @description Rules for individual coaching sessions belonging to a user.
-       * @path /users/{userId}/coachingSessions/{sessionId}
-       * @allow list: (list) User 'abc' queries their own sessions at /users/abc/coachingSessions.
-       * @deny update: (update) User 'abc' attempts to change the 'userId' field of an existing session.
-       * @principle Uses Authorization Independence by verifying internal ownership fields match the path.
+       * @description Rules for coaching sessions. Each session is private to the owning user.
+       * @path /users/{userId}/coachingSessions/{coachingSessionId}
+       * @allow User 'abc' (create) to /users/abc/coachingSessions/session_123 if data.userId == 'abc'.
+       * @deny User 'abc' (list) /users/xyz/coachingSessions.
+       * @principle Enforces path-based ownership and validates relational integrity of the userId field.
        */
-      match /coachingSessions/{sessionId} {
-        allow get: if isOwner(userId);
-        allow list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.userId == userId;
-        allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
+      match /coachingSessions/{coachingSessionId} {
+        allow get, list: if isOwner(userId);
+        
+        // On Create: Ensure user owns the path AND the data matches the path
+        allow create: if isOwner(userId) && request.resource.data.userId == userId && request.resource.data.id == coachingSessionId;
+        
+        // On Update: Ensure user owns the document AND relational fields are immutable
+        allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId && request.resource.data.id == resource.data.id;
+        
         allow delete: if isExistingOwner(userId);
       }
-    }
-
-    // Explicitly deny any access to unspecified paths.
-    match /{path=**} {
-      allow read, write: if false;
     }
   }
 }
