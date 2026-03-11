@@ -5,7 +5,7 @@ import {vertexAI} from "@genkit-ai/google-genai";
 // function from a Genkit action. It automatically implements streaming if your flow does.
 // The https library also has other utility methods such as hasClaim, which verifies that
 // a caller's token has a specific claim (optionally matching a specific value)
-import { onCallGenkit, hasClaim } from "firebase-functions/https";
+import { onCallGenkit } from "firebase-functions/https";
 
 // Gemini Developer API models and Vertex Express Mode models depend on an API key.
 // API keys should be stored in Cloud Secret Manager so that access to these
@@ -42,7 +42,7 @@ const menuSuggestionFlow = ai.defineFlow({
     const prompt =
       `Suggest an item for the menu of a ${subject} themed restaurant`;
     const { response, stream } = ai.generateStream({
-      model: vertexAI.model("gemini-2.5-flash"),
+      model: vertexAI.model("gemini-1.5-flash-latest"),
       prompt: prompt,
       config: {
         temperature: 1,

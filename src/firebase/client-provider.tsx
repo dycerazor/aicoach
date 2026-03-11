@@ -10,7 +10,10 @@ interface FirebaseClientProviderProps {
 
 /**
  * Provides Firebase services to the client.
- * Ensures initialization happens once and handles mounting to prevent hydration errors.
+ * 
+ * This provider ensures that Firebase is initialized correctly and shared 
+ * across the application. It handles the potential mismatch between 
+ * server-side rendering and client-side execution.
  */
 export function FirebaseClientProvider({ children }: FirebaseClientProviderProps) {
   const [isMounted, setIsMounted] = useState(false);
@@ -19,23 +22,21 @@ export function FirebaseClientProvider({ children }: FirebaseClientProviderProps
     setIsMounted(true);
   }, []);
 
-  // Initialize Firebase. This is safe to run during render, but we use isMounted
-  // to ensure that we don't try to render auth-dependent UI on the server.
+  // Initialize Firebase services. 
+  // initializeFirebase handles singleton logic internally, so this is safe.
   const firebaseServices = useMemo(() => {
     return initializeFirebase();
   }, []);
 
+  // We render the provider immediately. The internal 'useUser' and auth listener 
+  // logic in FirebaseProvider will handle the transition from 'loading' to 
+  // 'authenticated' state once the client-side Firebase SDK is fully ready.
   return (
     <FirebaseProvider
       firebaseApp={firebaseServices.firebaseApp}
       auth={firebaseServices.auth}
       firestore={firebaseServices.firestore}
     >
-      {/* 
-        We wrap children in a fragment to ensure the layout is stable.
-        Auth-dependent components will handle their own loading states 
-        via the useUser() hook.
-      */}
       {children}
     </FirebaseProvider>
   );
