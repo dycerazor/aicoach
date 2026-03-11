@@ -81,9 +81,9 @@ const realtimeAiCoachingFlow = ai.defineFlow(
       { role: 'user', content: input.userInputText },
     ];
 
-    // Generate a text response using Gemini 1.5 Flash for maximum responsiveness
+    // Generate a text response using Gemini 2.5 Flash for maximum responsiveness
     const { output: llmResponse } = await ai.generate({
-      model: googleAI.model('gemini-1.5-flash'),
+      model: googleAI.model('gemini-2.5-flash'),
       prompt: messages,
       config: {
         temperature: 0.7,
