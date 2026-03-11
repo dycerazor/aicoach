@@ -1,11 +1,15 @@
-
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
 
 runConfig:
-  # Specify the amount of resources allocated to each instance.
   cpu: 1
   memoryMiB: 1024
-  # Increase this value if you'd like to automatically spin up
-  # more instances in response to increased traffic.
   maxInstances: 1
+
+# Mapping environment variables to secrets for secure deployment.
+# Ensure these secrets are created in the Firebase Console under App Hosting settings.
+env:
+  - variable: GOOGLE_GENAI_API_KEY
+    secret: GOOGLE_GENAI_API_KEY
+  - variable: SIMLI_API_KEY
+    secret: SIMLI_API_KEY

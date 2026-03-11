@@ -6,14 +6,13 @@ import { getFirestore } from 'firebase/firestore'
 import { firebaseConfig } from '@/firebase/config';
 
 /**
- * Initializes Firebase services with a defensive multi-stage fallback.
+ * Initializes Firebase services with a robust fallback system.
  * 
- * 1. Checks for existing initialization to avoid 'duplicate app' errors.
- * 2. Attempts automatic initialization (standard for Firebase App Hosting).
- * 3. Falls back to explicit firebaseConfig for local dev or misconfigured environments.
+ * In App Hosting environments, it first attempts to initialize using the internal 
+ * environment configuration. If that fails (e.g., during build or early boot), 
+ * it falls back to the static config.
  */
 export function initializeFirebase() {
-  // Return existing app if already initialized
   const apps = getApps();
   if (apps.length > 0) {
     return getSdks(getApp());
@@ -22,21 +21,20 @@ export function initializeFirebase() {
   let app: FirebaseApp;
 
   try {
-    // Stage 1: Attempt automatic initialization (No arguments)
-    // This is the preferred method for Firebase App Hosting
+    // Standard App Hosting automatic initialization
     app = initializeApp();
-  } catch (autoInitError: any) {
-    // Stage 2: Fallback to manual configuration
-    // We catch 'no-options' errors and other initialization failures
+  } catch (error: any) {
+    // Fallback to static config for development or early-stage deployment
     try {
       app = initializeApp(firebaseConfig);
     } catch (manualInitError: any) {
-      // Final Fallback: If everything fails, try to return the default app if it somehow exists
-      if (getApps().length > 0) {
-        app = getApp();
+      // If we are already initialized somehow, return the existing app
+      const existingApps = getApps();
+      if (existingApps.length > 0) {
+        app = existingApps[0];
       } else {
-        // Log the failure to help debugging in the cloud console
-        console.error('CRITICAL: Firebase failed to initialize with all methods.', manualInitError);
+        console.warn('Firebase initialization delayed or failed. Falling back to default app.');
+        // Return a mock or handle gracefully in layout
         throw manualInitError;
       }
     }
