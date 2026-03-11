@@ -2,13 +2,12 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { SimliClient } from 'simli-client';
-// Import MediaPipe as side-effects because they often lack proper ESM exports
+// Side-effect imports for MediaPipe legacy modules
 import '@mediapipe/pose';
 import '@mediapipe/camera_utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Mic, MicOff, Loader2, BrainCircuit, Activity, Phone, PhoneOff, Camera as CameraIcon, User, Video, VideoOff } from 'lucide-react';
+import { Mic, MicOff, Loader2, BrainCircuit, Activity, Phone, PhoneOff, User, Video, VideoOff } from 'lucide-react';
 import { getSimliToken } from '@/app/actions/simli';
 import { talkToCoach } from '@/ai/flows/realtime-ai-coaching';
 import { summarizeSession } from '@/ai/flows/summarize-session';
@@ -47,7 +46,7 @@ export function MascotCoachInterface() {
   const poseRef = useRef<any>(null);
   const cameraRef = useRef<any>(null);
 
-  // Initialize MediaPipe Pose and Camera only when active and permission is granted
+  // Initialize MediaPipe Pose and Camera only when active
   useEffect(() => {
     if (!isActive || !hasCameraPermission || !userVideoRef.current) {
       if (cameraRef.current) {
@@ -85,6 +84,7 @@ export function MascotCoachInterface() {
         const rightShoulder = results.poseLandmarks[12];
         const shoulderAvgY = (leftShoulder.y + rightShoulder.y) / 2;
         
+        // Simple heuristic for posture detection
         if (shoulderAvgY - nose.y < 0.15) {
           setUserPosture('slouching or leaning forward');
         } else if (Math.abs(leftShoulder.y - rightShoulder.y) > 0.1) {
@@ -216,7 +216,7 @@ export function MascotCoachInterface() {
   const startCoaching = useCallback(async () => {
     setIsInitializing(true);
     
-    // Request Camera Permission only when joining
+    // Request Camera Permission only on Join
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       setHasCameraPermission(true);
@@ -345,6 +345,7 @@ export function MascotCoachInterface() {
 
   return (
     <div className="flex flex-col items-center gap-6 w-full max-w-5xl mx-auto p-4">
+      {/* Video Container always mounted to prevent ref race conditions */}
       <div className="relative w-full aspect-video bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border-8 border-white/5 group ring-4 ring-primary/20">
         {!isActive && !isInitializing && !isSummarizing && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-800/90 backdrop-blur-lg z-20">
@@ -372,7 +373,7 @@ export function MascotCoachInterface() {
           </div>
         )}
 
-        {/* AI Video Feed */}
+        {/* AI Video Feed (Simli) */}
         <video 
           ref={videoRef} 
           autoPlay 
@@ -380,7 +381,7 @@ export function MascotCoachInterface() {
           className={cn("w-full h-full object-cover", !isActive && "opacity-0")} 
         />
 
-        {/* User Video Feed (PiP Style) */}
+        {/* User Video Feed (MediaPipe PiP) */}
         <div className={cn(
           "absolute bottom-6 right-6 w-48 aspect-video rounded-xl overflow-hidden border-2 border-white/20 shadow-2xl transition-opacity duration-500",
           (!isActive || !isVisionEnabled) && "opacity-0"

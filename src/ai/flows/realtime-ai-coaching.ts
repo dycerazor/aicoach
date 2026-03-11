@@ -1,10 +1,8 @@
-
 'use server';
 /**
  * @fileOverview This file implements a Genkit flow for real-time AI coaching.
- * It is optimized for a "Gemini Live" experience, using high-speed models
- * and natural-sounding TTS to simulate a live videoconference.
- * Now includes posture and visual context awareness.
+ * Optimized for Gemini 1.5 Flash and Gemini 2.5 TTS for a 'Live Call' experience.
+ * Includes 24kHz to 16kHz PCM resampling for Simli compatibility.
  */
 
 import { ai } from '@/ai/genkit';
@@ -28,6 +26,7 @@ export type ConversationTurnOutput = z.infer<typeof ConversationTurnOutputSchema
 
 /**
  * Resamples 16-bit signed little-endian PCM audio data from 24kHz to 16kHz.
+ * Required for Simli client compatibility.
  */
 function resamplePcm24To16(inputBuffer: Buffer): Buffer {
   const inputSampleRate = 24000;
@@ -64,14 +63,10 @@ function resamplePcm24To16(inputBuffer: Buffer): Buffer {
   return outputBuffer;
 }
 
-const realtimeAiCoachingFlow = ai.defineFlow(
-  {
-    name: 'realtimeAiCoachingFlow',
-    inputSchema: ConversationTurnInputSchema,
-    outputSchema: ConversationTurnOutputSchema,
-  },
-  async (input) => {
-    const systemInstruction = `You are a world-class AI Life Coach in a live videoconference. 
+const coachPrompt = ai.definePrompt({
+  name: 'coachPrompt',
+  input: { schema: ConversationTurnInputSchema },
+  prompt: `You are a world-class AI Life Coach in a live videoconference. 
     Your tone is empathetic, professional, and encouraging. 
     You can SEE the user through their camera.
     
@@ -79,29 +74,33 @@ const realtimeAiCoachingFlow = ai.defineFlow(
     Speak naturally as if you are looking at the user through a camera.
 
     CURRENT VISUAL CONTEXT:
-    User's Posture: ${input.userPosture || "Unknown"}
+    User's Posture: {{userPosture}}
 
     INSTRUCTIONS:
     - If the user is slouching or has poor posture, gently mention it as part of your coaching.
     - If they seem restless or leaning too far in, adjust your advice accordingly.
-    - Maintain the flow of the conversation while being observant of their physical presence.`;
+    - Maintain the flow of the conversation while being observant of their physical presence.
+    
+    CONVERSATION HISTORY:
+    {{#each conversationHistory}}
+    {{role}}: {{{content}}}
+    {{/each}}
+    
+    USER: {{{userInputText}}}`,
+});
 
-    const messages = [
-      { role: 'system', content: systemInstruction },
-      ...(input.conversationHistory || []).map(m => ({ role: m.role, content: m.content })),
-      { role: 'user', content: input.userInputText },
-    ];
+const realtimeAiCoachingFlow = ai.defineFlow(
+  {
+    name: 'realtimeAiCoachingFlow',
+    inputSchema: ConversationTurnInputSchema,
+    outputSchema: ConversationTurnOutputSchema,
+  },
+  async (input) => {
+    // Generate Text Response
+    const { response: llmResponse } = await coachPrompt(input);
+    const aiResponseText = llmResponse.text;
 
-    const { output: llmResponse } = await ai.generate({
-      model: googleAI.model('gemini-2.5-flash'),
-      prompt: messages,
-      config: {
-        temperature: 0.7,
-        maxOutputTokens: 150,
-      },
-    });
-    const aiResponseText = llmResponse.text();
-
+    // Generate Audio Response (Gemini 2.5 TTS)
     const { media } = await ai.generate({
       model: googleAI.model('gemini-2.5-flash-preview-tts'),
       config: {
@@ -124,6 +123,7 @@ const realtimeAiCoachingFlow = ai.defineFlow(
       'base64'
     );
 
+    // Resample from 24kHz to 16kHz for Simli
     const resampledAudioBuffer = resamplePcm24To16(ttsAudioBuffer);
     const resampledAudioBase64 = resampledAudioBuffer.toString('base64');
 
