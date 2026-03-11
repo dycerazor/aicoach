@@ -1,6 +1,7 @@
 import { BrainCircuit, ShieldCheck, Zap, Sparkles } from 'lucide-react';
 import { AuthButton } from '@/components/auth/AuthButton';
 import { MascotCoach } from '@/components/coach/MascotCoach';
+import { SessionHistory } from '@/components/coach/SessionHistory';
 
 export default function Home() {
   return (
@@ -39,6 +40,9 @@ export default function Home() {
         {/* Main Interface - Safely loaded via Client Wrapper */}
         <MascotCoach />
       </section>
+
+      {/* Recent Activity Dashboard */}
+      <SessionHistory />
 
       {/* Features Grid */}
       <section className="bg-white w-full py-20 px-6 border-t mt-12">

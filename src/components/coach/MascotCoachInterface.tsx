@@ -4,26 +4,30 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { SimliClient } from 'simli-client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Mic, MicOff, Play, Square, Loader2, BrainCircuit, Activity } from 'lucide-react';
+import { Mic, MicOff, Play, Square, Loader2, BrainCircuit, Activity, Save } from 'lucide-react';
 import { getSimliToken } from '@/app/actions/simli';
 import { talkToCoach } from '@/ai/flows/realtime-ai-coaching';
+import { summarizeSession } from '@/ai/flows/summarize-session';
 import { base64PcmToInt16Array } from '@/lib/simli-utils';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useUser, useFirestore } from '@/firebase';
 import { collection, doc, serverTimestamp } from 'firebase/firestore';
 import { addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase/non-blocking-updates';
+import { useToast } from '@/hooks/use-toast';
 
 const DEFAULT_FACE_ID = "tmp_face_id_placeholder";
 
 export function MascotCoachInterface() {
   const { user } = useUser();
   const db = useFirestore();
+  const { toast } = useToast();
 
   const [isActive, setIsActive] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [conversationHistory, setConversationHistory] = useState<{ role: 'user' | 'model', content: string }[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -65,7 +69,6 @@ export function MascotCoachInterface() {
 
     setIsThinking(true);
     try {
-      // 1. Persist User Message to Firestore
       if (user && db && currentSessionId) {
         const messagesRef = collection(db, 'users', user.uid, 'coachingSessions', currentSessionId, 'sessionMessages');
         addDocumentNonBlocking(messagesRef, {
@@ -82,13 +85,13 @@ export function MascotCoachInterface() {
         conversationHistory: conversationHistory
       });
 
-      setConversationHistory(prev => [
-        ...prev,
-        { role: 'user', content: text },
-        { role: 'model', content: response.aiResponseText }
-      ]);
+      const updatedHistory = [
+        ...conversationHistory,
+        { role: 'user' as const, content: text },
+        { role: 'model' as const, content: response.aiResponseText }
+      ];
+      setConversationHistory(updatedHistory);
 
-      // 2. Persist AI Response to Firestore
       if (user && db && currentSessionId) {
         const messagesRef = collection(db, 'users', user.uid, 'coachingSessions', currentSessionId, 'sessionMessages');
         addDocumentNonBlocking(messagesRef, {
@@ -134,33 +137,44 @@ export function MascotCoachInterface() {
 
       await client.start();
 
-      // Create a new session in Firestore if authenticated
       if (user && db) {
         const sessionsRef = collection(db, 'users', user.uid, 'coachingSessions');
-        const sessionPromise = addDocumentNonBlocking(sessionsRef, {
+        const sessionRef = await addDocumentNonBlocking(sessionsRef, {
           userId: user.uid,
           startTime: serverTimestamp(),
           status: 'started',
           summary: '',
         });
         
-        // addDocumentNonBlocking returns a promise for the ref
-        const sessionRef = await sessionPromise;
         if (sessionRef) {
           setCurrentSessionId(sessionRef.id);
         }
       }
 
       setIsActive(true);
+      toast({
+        title: "Session Started",
+        description: "Your AI Coach is ready to talk.",
+      });
     } catch (error) {
       console.error("Failed to start coaching:", error);
-      alert("Error initializing session. Please check your API keys.");
+      toast({
+        variant: "destructive",
+        title: "Initialization Error",
+        description: "Failed to connect to Simli. Check your API keys.",
+      });
     } finally {
       setIsInitializing(false);
     }
-  }, [user, db]);
+  }, [user, db, toast]);
 
-  const stopCoaching = useCallback(() => {
+  const stopCoaching = useCallback(async () => {
+    setIsSummarizing(true);
+    const messagesToSummarize = conversationHistory.map(m => ({
+      role: m.role === 'model' ? 'ai' as const : 'user' as const,
+      content: m.content
+    }));
+
     if (simliClientRef.current) {
       simliClientRef.current.close();
       simliClientRef.current = null;
@@ -169,21 +183,37 @@ export function MascotCoachInterface() {
       recognitionRef.current.stop();
     }
 
-    // Mark session as completed in Firestore
-    if (user && db && currentSessionId) {
-      const sessionRef = doc(db, 'users', user.uid, 'coachingSessions', currentSessionId);
-      setDocumentNonBlocking(sessionRef, {
-        status: 'completed',
-        endTime: serverTimestamp(),
-      }, { merge: true });
-    }
+    try {
+      let finalSummary = "";
+      if (messagesToSummarize.length > 0) {
+        const summaryResult = await summarizeSession({ messages: messagesToSummarize });
+        finalSummary = summaryResult.summary;
+      }
 
-    setIsActive(false);
-    setIsListening(false);
-    setConversationHistory([]);
-    setTranscription('');
-    setCurrentSessionId(null);
-  }, [user, db, currentSessionId]);
+      if (user && db && currentSessionId) {
+        const sessionRef = doc(db, 'users', user.uid, 'coachingSessions', currentSessionId);
+        setDocumentNonBlocking(sessionRef, {
+          status: 'completed',
+          endTime: serverTimestamp(),
+          summary: finalSummary,
+        }, { merge: true });
+      }
+
+      toast({
+        title: "Session Saved",
+        description: "Your coaching session summary is now available in your history.",
+      });
+    } catch (error) {
+      console.error("Failed to summarize session:", error);
+    } finally {
+      setIsActive(false);
+      setIsListening(false);
+      setIsSummarizing(false);
+      setConversationHistory([]);
+      setTranscription('');
+      setCurrentSessionId(null);
+    }
+  }, [user, db, currentSessionId, conversationHistory, toast]);
 
   const toggleListening = () => {
     if (!isActive) return;
@@ -199,7 +229,7 @@ export function MascotCoachInterface() {
   return (
     <div className="flex flex-col items-center gap-6 w-full max-w-4xl mx-auto p-4">
       <div className="relative w-full aspect-video bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border-4 border-white/10 group">
-        {!isActive && !isInitializing && (
+        {!isActive && !isInitializing && !isSummarizing && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-800/80 backdrop-blur-sm transition-all">
             <BrainCircuit className="w-16 h-16 text-accent mb-4 animate-pulse" />
             <h3 className="text-white text-xl font-headline font-semibold mb-6">Your AI Coach is ready</h3>
@@ -214,10 +244,12 @@ export function MascotCoachInterface() {
           </div>
         )}
 
-        {isInitializing && (
+        {(isInitializing || isSummarizing) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-800 transition-all">
             <Loader2 className="w-12 h-12 text-accent animate-spin mb-4" />
-            <p className="text-slate-300 font-medium">Initializing secure connection...</p>
+            <p className="text-slate-300 font-medium">
+              {isInitializing ? "Initializing secure connection..." : "Summarizing your session..."}
+            </p>
           </div>
         )}
 
@@ -267,12 +299,12 @@ export function MascotCoachInterface() {
           <Button
             size="lg"
             variant={isListening ? "destructive" : "default"}
-            disabled={!isActive || isThinking}
+            disabled={!isActive || isThinking || isSummarizing}
             onClick={toggleListening}
             className={cn(
               "rounded-full h-16 w-16 shadow-xl transition-all duration-300",
               isListening && "animate-pulse scale-110",
-              !isActive && "opacity-50 grayscale"
+              (!isActive || isSummarizing) && "opacity-50 grayscale"
             )}
           >
             {isListening ? <MicOff className="h-8 w-8" /> : <Mic className="h-8 w-8" />}
@@ -280,10 +312,10 @@ export function MascotCoachInterface() {
           
           <div className="flex flex-col">
             <h4 className="font-headline font-bold text-slate-800">
-              {isActive ? "Voice Control" : "Session Inactive"}
+              {isActive ? "Voice Control" : isSummarizing ? "Saving Session" : "Session Inactive"}
             </h4>
             <p className="text-sm text-slate-500">
-              {isActive ? (isListening ? "Speak now..." : "Press microphone to talk") : "Initialize coach to start talking"}
+              {isActive ? (isListening ? "Speak now..." : "Press microphone to talk") : isSummarizing ? "Creating AI summary..." : "Initialize coach to start talking"}
             </p>
           </div>
         </CardContent>
