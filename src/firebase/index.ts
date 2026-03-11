@@ -1,46 +1,35 @@
 'use client';
 
+import { firebaseConfig } from '@/firebase/config';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore'
-import { firebaseConfig } from '@/firebase/config';
 
-/**
- * Initializes Firebase services with a robust fallback system.
- * 
- * In App Hosting environments, it first attempts to initialize using the internal 
- * environment configuration. If that fails (e.g., during build or early boot), 
- * it falls back to the static config.
- */
+// IMPORTANT: DO NOT MODIFY THIS FUNCTION
 export function initializeFirebase() {
-  const apps = getApps();
-  if (apps.length > 0) {
-    return getSdks(getApp());
-  }
-
-  let app: FirebaseApp;
-
-  try {
-    // Standard App Hosting automatic initialization
-    app = initializeApp();
-  } catch (error: any) {
-    // Fallback to static config for development or early-stage deployment
+  if (!getApps().length) {
+    // Important! initializeApp() is called without any arguments because Firebase App Hosting
+    // integrates with the initializeApp() function to provide the environment variables needed to
+    // populate the FirebaseOptions in production. It is critical that we attempt to call initializeApp()
+    // without arguments.
+    let firebaseApp;
     try {
-      app = initializeApp(firebaseConfig);
-    } catch (manualInitError: any) {
-      // If we are already initialized somehow, return the existing app
-      const existingApps = getApps();
-      if (existingApps.length > 0) {
-        app = existingApps[0];
-      } else {
-        console.warn('Firebase initialization delayed or failed. Falling back to default app.');
-        // Return a mock or handle gracefully in layout
-        throw manualInitError;
+      // Attempt to initialize via Firebase App Hosting environment variables
+      firebaseApp = initializeApp();
+    } catch (e) {
+      // Only warn in production because it's normal to use the firebaseConfig to initialize
+      // during development
+      if (process.env.NODE_ENV === "production") {
+        console.warn('Automatic initialization failed. Falling back to firebase config object.', e);
       }
+      firebaseApp = initializeApp(firebaseConfig);
     }
+
+    return getSdks(firebaseApp);
   }
 
-  return getSdks(app);
+  // If already initialized, return the SDKs with the already initialized App
+  return getSdks(getApp());
 }
 
 export function getSdks(firebaseApp: FirebaseApp) {
